@@ -1,0 +1,26 @@
+[package]
+name = "websockets"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "server"
+path = "server.rs"
+
+[[bin]]
+name = "client"
+path = "client.rs"
+
+[dependencies]
+serde = { version = "1.0.167", features = ["derive"] }
+tokio = { version = "1.29.1", features = ["full", "rt-multi-thread"] }
+tokio-tungstenite = "0.16"
+tungstenite = "0.15"
+futures-util = "0.3"
+regex = "1"
+anyhow = "1.0.75"
+package = "0.0.0"
+url = "2.5.0"
+serde_json = "1.0.108"

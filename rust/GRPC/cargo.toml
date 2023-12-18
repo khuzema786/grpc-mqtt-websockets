@@ -1,0 +1,27 @@
+[package]
+name = "grpc"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "server"
+path = "server.rs"
+
+[[bin]]
+name = "client"
+path = "client.rs"
+
+[dependencies]
+tonic = "0.5"
+tokio = { version = "1.29.1", features = ["full", "rt-multi-thread"] }
+tokio-stream = "0.1"
+futures = "0.3.28"
+prost = "0.8"
+package = "0.0.0"
+regex = "1.10.2"
+anyhow = "1.0.75"
+
+[build-dependencies]
+tonic-build = "0.5"

@@ -1,0 +1,6 @@
+/.vscode/tasks.json
+/.vscode/launch.json
+.DS_Store
+target
+node_modules
+*.log

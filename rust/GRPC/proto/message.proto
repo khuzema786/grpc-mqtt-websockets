@@ -1,0 +1,17 @@
+// message.proto
+
+syntax = "proto3";
+
+package loadtest;
+
+message LoadTestRequest {
+  string payload = 1;
+}
+
+message LoadTestResponse {
+  string message = 1;
+}
+
+service LoadTester {
+  rpc StreamPayload(stream LoadTestRequest) returns (stream LoadTestResponse);
+}
