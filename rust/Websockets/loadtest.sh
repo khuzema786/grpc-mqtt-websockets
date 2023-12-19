@@ -24,7 +24,7 @@ mkdir -p logs
 cleanup() {
     echo "Cleaning up..."    
     kill $CLIENT_PID
-    kill SERVER_PID
+    kill $SERVER_PID
     pkill -P $$ # Kill all child processes of this script
 }
 

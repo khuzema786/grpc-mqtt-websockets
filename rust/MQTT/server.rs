@@ -1,73 +1,107 @@
-use futures_util::{SinkExt, StreamExt};
-use std::time::Instant;
-use tokio::net::TcpListener;
-use tokio::spawn;
-use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
+use anyhow::Result;
+use rumqttc::{AsyncClient, MqttOptions, Publish, QoS};
+use std::{env, process, time::Duration};
+use tokio::{task::JoinHandle, time::sleep};
 
 mod types;
 use types::*;
 
-async fn handle_connection(stream: tokio::net::TcpStream) {
-    let mut websocket = accept_async(stream)
-        .await
-        .expect("Error during WebSocket handshake");
+async fn mqtt_publisher(
+    total_clients: usize,
+    total_messages: usize,
+    payload_size: usize,
+) -> Result<()> {
+    let mut handles = Vec::new();
 
-    let total_messages: usize = std::env::var("TOTAL_MESSAGES")
-        .unwrap_or_else(|_| "10".to_string())
-        .parse()
-        .unwrap();
-    let payload_size: usize = std::env::var("PAYLOAD_SIZE")
-        .unwrap_or_else(|_| "1500".to_string())
-        .parse()
-        .unwrap();
+    for client_id in 0..total_clients {
+        let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
+            let mqttoptions =
+                MqttOptions::new(format!("publisher_{}", client_id), "localhost", 1883);
+            let (mut client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
+            client
+                .subscribe(format!("ack/client/{}", client_id), QoS::AtLeastOnce)
+                .await?;
 
-    println!("Connection Successful");
+            let mut message_count = 0;
+            let start_time = std::time::Instant::now();
 
-    let start_time = Instant::now();
+            for _ in 0..total_messages {
+                client
+                    .publish(
+                        &format!("client/{}", client_id),
+                        QoS::AtLeastOnce,
+                        false,
+                        serde_json::to_string(&LoadTestResponse {
+                            message: format!("{}", "x".repeat(payload_size)),
+                        })
+                        .unwrap(),
+                    )
+                    .await?;
 
-    for _ in 0..total_messages {
-        websocket
-            .send(Message::Text(
-                serde_json::to_string(&LoadTestResponse {
-                    message: format!("{}", "x".repeat(payload_size)),
-                })
-                .unwrap(),
-            ))
-            .await
-            .unwrap();
+                while let Ok(notification) = eventloop.poll().await {
+                    if let rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish)) =
+                        notification
+                    {
+                        let message = String::from_utf8(publish.payload.to_vec())?;
+                        let ack = serde_json::from_str::<LoadTestRequest>(&message).unwrap();
+                        println!("GOT A MESSAGE: {:?}", ack.payload); // Acknowledgment from the client
+                        message_count += 1;
+                        break;
+                    }
+                }
+            }
 
-        if let Some(Ok(Message::Text(ack))) = websocket.next().await {
-            let ack = serde_json::from_str::<LoadTestRequest>(&ack).unwrap();
-            println!("GOT A MESSAGE: {:?}", ack.payload); // Acknowledgment from the client
-        }
+            if message_count == total_messages {
+                client
+                    .publish(
+                        &format!("client/{}", client_id),
+                        QoS::AtLeastOnce,
+                        false,
+                        serde_json::to_string(&LoadTestResponse {
+                            message: format!(
+                                "Total time for {} messages: {:?} ms",
+                                total_messages,
+                                start_time.elapsed().as_millis()
+                            ),
+                        })
+                        .unwrap(),
+                    )
+                    .await?;
+                while let Ok(notification) = eventloop.poll().await {
+                    if let rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish)) =
+                        notification
+                    {
+                        break;
+                    }
+                }
+            }
+
+            Ok(())
+        });
+        handles.push(handle);
     }
 
-    websocket
-        .send(Message::Text(
-            serde_json::to_string(&LoadTestResponse {
-                message: format!(
-                    "Total time for {} messages: {:?} ms",
-                    total_messages,
-                    start_time.elapsed().as_millis()
-                ),
-            })
-            .unwrap(),
-        ))
-        .await
-        .unwrap();
-
-    if let Some(Ok(Message::Text(ack))) = websocket.next().await {
-        let ack = serde_json::from_str::<LoadTestRequest>(&ack).unwrap();
-        println!("GOT A MESSAGE: {:?}", ack.payload); // Acknowledgment from the client
+    for handle in handles {
+        handle.await??;
     }
+
+    Ok(())
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:9001").await.unwrap();
-    println!("WebSocket server listening on ws://127.0.0.1:9001");
+#[tokio::main(flavor = "multi_thread", worker_threads = 1)] // Adjust the number of worker threads as needed
+async fn main() -> Result<()> {
+    let total_clients: usize = env::var("TOTAL_CLIENTS")
+        .unwrap_or_else(|_| "10".to_string())
+        .parse()
+        .expect("Error parsing TOTAL_CLIENTS");
+    let total_messages: usize = env::var("TOTAL_MESSAGES")
+        .unwrap_or_else(|_| "10".to_string())
+        .parse()
+        .expect("Error parsing TOTAL_MESSAGES");
+    let payload_size: usize = env::var("PAYLOAD_SIZE")
+        .unwrap_or_else(|_| "1500".to_string())
+        .parse()
+        .expect("Error parsing PAYLOAD_SIZE");
 
-    while let Ok((stream, _)) = listener.accept().await {
-        spawn(handle_connection(stream));
-    }
+    mqtt_publisher(total_clients, total_messages, payload_size).await
 }

@@ -1,61 +1,61 @@
 use anyhow::Result;
-use futures_util::{SinkExt, StreamExt};
 use regex::Regex;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use url::Url;
+use rumqttc::{AsyncClient, EventLoop, MqttOptions, Publish, QoS};
+use std::env;
 
 mod types;
 use types::*;
 
-async fn connect_client(id: usize) -> Result<()> {
-    let url = Url::parse("ws://127.0.0.1:9001").unwrap();
-    let (mut ws_stream, _) = connect_async(url).await.expect("Failed to connect");
+async fn mqtt_client(client_id: usize) -> Result<()> {
+    let mut mqttoptions = MqttOptions::new(format!("client_{}", client_id), "localhost", 1883);
+    mqttoptions.set_keep_alive(60);
 
-    while let Some(message) = ws_stream.next().await {
-        match message {
-            Ok(msg) => {
-                if let Message::Text(text) = msg {
-                    let message = serde_json::from_str::<LoadTestResponse>(&text).unwrap();
-                    if let Some(caps) = Regex::new(r"Total time for [0-9]+ messages: ([0-9]+) ms")?
-                        .captures(&message.message)
-                    {
-                        if let Some(matched) = caps.get(1) {
-                            println!("Client {}: Total time: {} ms", id, matched.as_str());
-                        }
-                    } else {
-                        ws_stream
-                            .send(Message::Text(
-                                serde_json::to_string(&LoadTestRequest {
-                                    payload: "Acknowledged".into(),
-                                })
-                                .unwrap(),
-                            ))
-                            .await
-                            .unwrap();
-                    }
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
+    client
+        .subscribe(format!("client/{}", client_id), QoS::AtLeastOnce)
+        .await?;
+
+    while let Ok(notification) = eventloop.poll().await {
+        if let rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish)) = notification {
+            let message = serde_json::from_str::<LoadTestResponse>(&String::from_utf8(
+                publish.payload.to_vec(),
+            )?)
+            .unwrap();
+            if let Some(caps) = Regex::new(r"Total time for [0-9]+ messages: ([0-9]+) ms")?
+                .captures(&message.message)
+            {
+                if let Some(matched) = caps.get(1) {
+                    println!("Client {}: Total time: {} ms", client_id, matched.as_str());
                 }
             }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
-            }
+            let ack_topic = format!("ack/client/{}", client_id);
+            client
+                .publish(
+                    &ack_topic,
+                    QoS::AtLeastOnce,
+                    false,
+                    serde_json::to_string(&LoadTestRequest {
+                        payload: "Acknowledged".into(),
+                    })
+                    .unwrap(),
+                )
+                .await?;
         }
     }
 
     Ok(())
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 9)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<()> {
     let total_clients: usize = std::env::var("TOTAL_CLIENTS")
         .unwrap_or_else(|_| "10".to_string())
-        .parse()
-        .unwrap();
+        .parse()?;
 
     // Collect all client tasks in a vector
     let client_tasks: Vec<_> = (0..total_clients)
         .map(|id| {
-            let client = connect_client(id);
+            let client = mqtt_client(id);
             tokio::spawn(client)
         })
         .collect();

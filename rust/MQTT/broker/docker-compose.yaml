@@ -11,8 +11,8 @@ services:
       - ./config:/mosquitto/config
       - ./data:/mosquitto/data
       - ./log:/mosquitto/log
-    environment:
-      - MOSQUITTO_USERNAME=root
-      - MOSQUITTO_PASSWORD=root
+    # environment:
+    #   - MOSQUITTO_USERNAME=root
+    #   - MOSQUITTO_PASSWORD=root
     restart: unless-stopped
 

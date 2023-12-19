@@ -31,42 +31,6 @@ cleanup() {
 # Set trap to call cleanup function on script exit or interrupt
 trap cleanup EXIT INT
 
-# Set environment variables and start server in the background
-TOTAL_MESSAGES=$messages PAYLOAD_SIZE=$payloadsize cargo run --bin server > logs/server.log 2>&1 &
-
-# Store server's PID to later terminate it
-SERVER_PID=$!
-
-# Function to check if the server is up by running the client and checking server logs
-server_is_up() {
-    # Run the client with 1 client in the background
-    TOTAL_CLIENTS=1 cargo run --bin client &
-
-    # Store the client's PID
-    CLIENT_PID=$!
-
-    # Allow some time for the client to attempt a connection
-    sleep 2
-
-    # Check the server log for a specific success message
-    if grep -q "Connection Successful" logs/server.log; then
-        # If success message is found, kill the client process and return success
-        kill $CLIENT_PID
-        return 0
-    else
-        # If success message is not found, kill the client process and return failure
-        kill $CLIENT_PID
-        return 1
-    fi
-}
-
-# Wait for the server to start
-echo "Waiting for the server to start..."
-until server_is_up; do
-    sleep 1
-done
-echo "Server is up and running."
-
 # Initialize total average time
 total_average_time=0
 
@@ -79,6 +43,15 @@ for simulation in $(seq 1 $simulations); do
 
     # Store the client's PID
     CLIENT_PID=$!
+
+    # Allow some time for the client to attempt a connection
+    sleep 2
+
+    # Set environment variables and start server in the background
+    TOTAL_MESSAGES=$messages PAYLOAD_SIZE=$payloadsize TOTAL_CLIENTS=$clients cargo run --bin server > logs/server.log 2>&1 &
+
+    # Store server's PID to later terminate it
+    SERVER_PID=$!
 
     # Wait for all clients to report their times
     while [ $completed_clients -lt $clients ]; do
@@ -95,6 +68,7 @@ for simulation in $(seq 1 $simulations); do
     echo "Average Duration for Simulation $simulation for $clients clients : $simulationAverage ms"
 
     kill $CLIENT_PID
+    kill $SERVER_PID
 done
 
 simulationAverage=$(echo "scale=2; $total_average_time / $simulations" | bc)
