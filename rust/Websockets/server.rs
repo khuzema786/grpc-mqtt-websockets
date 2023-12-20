@@ -21,7 +21,7 @@ async fn handle_connection(stream: tokio::net::TcpStream) {
         .parse()
         .unwrap();
 
-    println!("Connection Successful");
+    // println!("Connection Successful");
 
     let start_time = Instant::now();
 
@@ -38,7 +38,7 @@ async fn handle_connection(stream: tokio::net::TcpStream) {
 
         if let Some(Ok(Message::Text(ack))) = websocket.next().await {
             let ack = serde_json::from_str::<LoadTestRequest>(&ack).unwrap();
-            println!("GOT A MESSAGE: {:?}", ack.payload); // Acknowledgment from the client
+            // println!("GOT A MESSAGE: {:?}", ack.payload); // Acknowledgment from the client
         }
     }
 

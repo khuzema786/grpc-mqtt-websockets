@@ -48,7 +48,7 @@ impl LoadTester for MyLoadTester {
                 }))
                 .await
                 .unwrap();
-                while let Some(message) = stream.message().await.unwrap() {
+                while let Ok(Some(message)) = stream.message().await {
                     println!("GOT A MESSAGE: {:?}", message); // Acknowledgment from the client
                     message_count += 1;
                     break;
@@ -67,7 +67,7 @@ impl LoadTester for MyLoadTester {
                 .unwrap();
             }
 
-            while let Some(message) = stream.message().await.unwrap() {
+            while let Ok(Some(message)) = stream.message().await {
                 println!("GOT A MESSAGE: {:?}", message);
             }
         });
